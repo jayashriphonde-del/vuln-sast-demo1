@@ -1,0 +1,16 @@
+rules:
+  - id: python-sql-injection-string-concat
+    message: "Possible SQL injection: string building used to construct SQL."
+    languages: [python]
+    severity: ERROR
+    patterns:
+      - pattern: |
+          $C.execute("$SQL")
+      - pattern-either:
+          - pattern: |
+              $C.execute($SQL)
+          - pattern: |
+              $CUR.execute("$X")
+    metadata:
+      category: security
+    languages: [python]
