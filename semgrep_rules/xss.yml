@@ -1,0 +1,8 @@
+rules:
+  - id: reflected-xss-flask-render
+    message: "Reflected XSS: rendering user-controlled value into template without sanitization."
+    languages: [python]
+    severity: WARNING
+    patterns:
+      - pattern: |
+          render_template($TEMPLATE, $K = $USER)
