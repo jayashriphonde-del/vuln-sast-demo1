@@ -1,0 +1,74 @@
+name: SAST — Semgrep
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python (for semgrep runner if needed)
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install semgrep
+        run: |
+          python -m pip install --upgrade pip
+          pip install semgrep
+
+      - name: Run Semgrep (local rules)
+        run: |
+          semgrep --config semgrep_rules --json --output semgrep_results.json || true
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-results
+          path: semgrep_results.json
+
+      - name: Create a PR comment with summary
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, requests
+          fn = "semgrep_results.json"
+          if not os.path.exists(fn):
+              print("no semgrep results")
+              sys.exit(0)
+          data = json.load(open(fn))
+          hits = data.get("results", [])
+          if not hits:
+              body = "Semgrep: No findings ✅"
+          else:
+              body = f"Semgrep: {len(hits)} findings\n\n|Rule|File|Line|Message|\n|---|---|---|---|\n"
+              for r in hits[:50]:
+                  rule = r.get("check_id") or r.get("rule_id") or (r.get("extra") or {}).get("metadata", {}).get("id", "")
+                  path = r.get("path") or (r.get("extra") or {}).get("path","")
+                  line = r.get("start",{}).get("line","")
+                  msg = (r.get("extra") or {}).get("message","").replace("\n"," ")
+                  body += f"|`{rule}`|`{path}`|{line}|{msg}|\n"
+              if len(hits) > 50:
+                  body += f"\n_Showing first 50 of {len(hits)} findings._"
+          # Post comment
+          repo = os.environ["REPO"]
+          pr = os.environ["PR"]
+          token = os.environ["GITHUB_TOKEN"]
+          url = f"https://api.github.com/repos/{repo}/issues/{pr}/comments"
+          requests.post(url, json={"body": body}, headers={"Authorization": f"token {token}"})
+          print("comment posted")
+          PY
